@@ -1,0 +1,90 @@
+#include "RayTrace.cginc"
+#include "Reflective.cginc"
+
+#pragma kernel Main
+
+// Const
+static const float PI = 3.14159265f;
+static const float EPSILON = 1e-8;
+// Directional light
+static const float3 LIGHT_DIR  = normalize(float3(1.0, 1.0, 0.0));
+static const float3 LIGHT_COL = saturate(float3(1.0, 1.0, 1.0));
+
+// Input
+float4x4 _CameraToWorld;
+float4x4 _CameraInverseProjection;
+StructuredBuffer<Sphere> _Spheres;
+float _Time;
+
+// Output
+RWTexture2D<float4> Result;
+
+
+// trace a ray
+RayHit Trace(Ray ray)
+{
+    uint nSpheres, stride;
+    _Spheres.GetDimensions(nSpheres, stride);
+
+    RayHit bestHit = CreateRayHit();
+    IntersectGroundPlane(ray, bestHit);
+    for (uint i = 0; i < nSpheres; ++i)
+        IntersectSphere(ray, bestHit, _Spheres[i] );
+    return bestHit;
+}
+
+// output color
+float4 Shade(inout Ray ray, RayHit hit)
+{
+    if (hit.object > 0)
+    {
+        // hit ground
+        if (hit.object == (uint)1)
+            return Reflective(ray, hit, _Time);
+
+        // hit ball
+        if (hit.object == (uint)2)
+        {
+            float f = fresnel(ray, hit);
+            return Refractive(ray, hit, _Time) * f + Reflective(ray, hit, _Time) * (1.0 - f);
+        }
+    }
+    // If hit nothing
+    return Background(ray.direction, _Time);
+}
+
+[numthreads(8,8,1)]
+void Main (uint3 id : SV_DispatchThreadID)
+{
+    // Get the dimensions of the RenderTexture
+    uint width, height;
+    Result.GetDimensions(width, height);
+    // Transform pixel to [-1,1] range
+    float2 uv = float2((id.xy + 0.5) / float2(width, height) * 2.0f - 1.0f);
+    // Create a ray
+    Ray ray = CreateCameraRay(uv, _CameraToWorld, _CameraInverseProjection);
+
+    float4 color = float4(0.0, 0.0, 0.0, 1.0);
+    // Bounce 8 times
+    for (uint i = 0; i < 8; i++)
+    {
+        RayHit hit = Trace(ray);
+        float4 output = Shade(ray, hit);
+        color.rgb += ray.energy * output.rgb * output.a;
+        color.a = output.a;
+
+        // hit skybox
+        if (hit.object == 0)
+        {
+            // desaturate
+            color.rgb *= 2.0 * lerp(0.4, 1.0, abs(ray.direction.y));
+        }
+
+        if (hit.object == 0)
+        {
+            ray.energy = 0.0;
+            break;
+        }
+    }
+    Result[id.xy] = color;
+}
