@@ -1,5 +1,5 @@
 ## Ray Traced Marble Shader
 
-I am writing a tutorial.
+Tutorial [is out](https://khn190.github.io/marble-shader-unity). :)
 
 ![img](./img/marble.gif)
